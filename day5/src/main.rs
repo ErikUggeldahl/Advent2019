@@ -12,6 +12,10 @@ enum Operation {
     Multiplication(ParameterMode, ParameterMode, ParameterMode),
     Input(ParameterMode),
     Output(ParameterMode),
+    JumpTrue(ParameterMode, ParameterMode),
+    JumpFalse(ParameterMode, ParameterMode),
+    Less(ParameterMode, ParameterMode, ParameterMode),
+    Equal(ParameterMode, ParameterMode, ParameterMode),
     Terminate,
 }
 
@@ -61,12 +65,62 @@ where
                 advance = 2;
                 let mut op_input = String::new();
                 reader.read_line(&mut op_input).expect("Unable to read");
-                let op_input = op_input.trim().parse::<i32>().expect("Unable to parse input");
+                let op_input = op_input
+                    .trim()
+                    .parse::<i32>()
+                    .expect("Unable to parse input");
                 input[input[instruction_ptr + 1] as usize] = op_input;
             }
             Operation::Output(p1) => {
                 advance = 2;
-                writeln!(&mut writer, "{}", value_from_parameter(input, instruction_ptr + 1, p1)).expect("Unable to write");
+                writeln!(
+                    &mut writer,
+                    "{}",
+                    value_from_parameter(input, instruction_ptr + 1, p1)
+                )
+                .expect("Unable to write");
+            }
+            Operation::JumpTrue(p1, p2) => {
+                let compare = value_from_parameter(input, instruction_ptr + 1, p1);
+                match compare != 0 {
+                    true => {
+                        advance = 0;
+                        instruction_ptr =
+                            value_from_parameter(input, instruction_ptr + 2, p2) as usize;
+                    }
+                    false => advance = 3,
+                }
+            }
+            Operation::JumpFalse(p1, p2) => {
+                let compare = value_from_parameter(input, instruction_ptr + 1, p1);
+                match compare == 0 {
+                    true => {
+                        advance = 0;
+                        instruction_ptr =
+                            value_from_parameter(input, instruction_ptr + 2, p2) as usize;
+                    }
+                    false => advance = 3,
+                }
+            }
+            Operation::Less(p1, p2, _) => {
+                advance = 4;
+                input[input[instruction_ptr + 3] as usize] =
+                    match value_from_parameter(input, instruction_ptr + 1, p1)
+                        < value_from_parameter(input, instruction_ptr + 2, p2)
+                    {
+                        true => 1,
+                        false => 0,
+                    };
+            }
+            Operation::Equal(p1, p2, _) => {
+                advance = 4;
+                input[input[instruction_ptr + 3] as usize] =
+                    match value_from_parameter(input, instruction_ptr + 1, p1)
+                        == value_from_parameter(input, instruction_ptr + 2, p2)
+                    {
+                        true => 1,
+                        false => 0,
+                    };
             }
             Operation::Terminate => break,
         }
@@ -89,6 +143,24 @@ fn parse_operation(instruction: i32) -> Operation {
         ),
         3 => Operation::Input(parse_parameter_mode(instruction, 0)),
         4 => Operation::Output(parse_parameter_mode(instruction, 0)),
+        5 => Operation::JumpTrue(
+            parse_parameter_mode(instruction, 0),
+            parse_parameter_mode(instruction, 1),
+        ),
+        6 => Operation::JumpFalse(
+            parse_parameter_mode(instruction, 0),
+            parse_parameter_mode(instruction, 1),
+        ),
+        7 => Operation::Less(
+            parse_parameter_mode(instruction, 0),
+            parse_parameter_mode(instruction, 1),
+            parse_parameter_mode(instruction, 2),
+        ),
+        8 => Operation::Equal(
+            parse_parameter_mode(instruction, 0),
+            parse_parameter_mode(instruction, 1),
+            parse_parameter_mode(instruction, 2),
+        ),
         99 => Operation::Terminate,
         _ => panic!("Unrecognized instruction"),
     }
@@ -117,7 +189,6 @@ mod tests {
     fn test_computer() {
         let input = b"";
         let mut output = Vec::new();
-
         let mut program = [1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
         compute(&mut program, &input[..], &mut output);
         assert_eq!(program, [3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50]);
@@ -141,5 +212,98 @@ mod tests {
         let mut program = [1002, 4, 3, 4, 33];
         compute(&mut program, &input[..], &mut output);
         assert_eq!(program, [1002, 4, 3, 4, 99]);
+
+        let input = b"8";
+        let mut output = Vec::new();
+        let mut program = [3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"1\n");
+
+        let input = b"9";
+        let mut output = Vec::new();
+        let mut program = [3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"0\n");
+
+        let input = b"8";
+        let mut output = Vec::new();
+        let mut program = [3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"0\n");
+
+        let input = b"7";
+        let mut output = Vec::new();
+        let mut program = [3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"1\n");
+
+        let input = b"8";
+        let mut output = Vec::new();
+        let mut program = [3, 3, 1108, -1, 8, 3, 4, 3, 99];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"1\n");
+
+        let input = b"9";
+        let mut output = Vec::new();
+        let mut program = [3, 3, 1108, -1, 8, 3, 4, 3, 99];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"0\n");
+
+        let input = b"8";
+        let mut output = Vec::new();
+        let mut program = [3, 3, 1107, -1, 8, 3, 4, 3, 99];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"0\n");
+
+        let input = b"7";
+        let mut output = Vec::new();
+        let mut program = [3, 3, 1107, -1, 8, 3, 4, 3, 99];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"1\n");
+
+        let input = b"2";
+        let mut output = Vec::new();
+        let mut program = [3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"1\n");
+
+        let input = b"0";
+        let mut output = Vec::new();
+        let mut program = [3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"0\n");
+
+        let input = b"2";
+        let mut output = Vec::new();
+        let mut program = [3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"1\n");
+
+        let input = b"0";
+        let mut output = Vec::new();
+        let mut program = [3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1];
+        compute(&mut program, &input[..], &mut output);
+        assert_eq!(output, b"0\n");
+
+        let program = [
+            3, 21, 1008, 21, 8, 20, 1005, 20, 22, 107, 8, 21, 20, 1006, 20, 31, 1106, 0, 36, 98, 0,
+            0, 1002, 21, 125, 20, 4, 20, 1105, 1, 46, 104, 999, 1105, 1, 46, 1101, 1000, 1, 20, 4,
+            20, 1105, 1, 46, 98, 99,
+        ];
+
+        let input = b"7";
+        let mut output = Vec::new();
+        compute(&mut program.clone(), &input[..], &mut output);
+        assert_eq!(output, b"999\n");
+
+        let input = b"8";
+        let mut output = Vec::new();
+        compute(&mut program.clone(), &input[..], &mut output);
+        assert_eq!(output, b"1000\n");
+
+        let input = b"9";
+        let mut output = Vec::new();
+        compute(&mut program.clone(), &input[..], &mut output);
+        assert_eq!(output, b"1001\n");
     }
 }
