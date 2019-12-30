@@ -4,13 +4,16 @@ use std::io::prelude::*;
 pub struct Intcode {
     pub program: Vec<i64>,
     instruction_ptr: usize,
+    relative_base: i64,
 }
 
 impl Intcode {
-    pub fn new(program: Vec<i64>) -> Self {
+    pub fn new(mut program: Vec<i64>) -> Self {
+        program.extend_from_slice(&vec![0; 2048 - program.len()]);
         Intcode {
             program,
             instruction_ptr: 0,
+            relative_base: 0,
         }
     }
 }
@@ -18,31 +21,34 @@ impl Intcode {
 enum ParameterMode {
     Position,
     Immediate,
+    Relative,
 }
 
 enum Operation {
-    Addition(ParameterMode, ParameterMode),
-    Multiplication(ParameterMode, ParameterMode),
-    Input,
+    Addition(ParameterMode, ParameterMode, ParameterMode),
+    Multiplication(ParameterMode, ParameterMode, ParameterMode),
+    Input(ParameterMode),
     Output(ParameterMode),
     JumpTrue(ParameterMode, ParameterMode),
     JumpFalse(ParameterMode, ParameterMode),
-    Less(ParameterMode, ParameterMode),
-    Equal(ParameterMode, ParameterMode),
+    Less(ParameterMode, ParameterMode, ParameterMode),
+    Equal(ParameterMode, ParameterMode, ParameterMode),
+    ChangeRelativeBase(ParameterMode),
     Terminate,
 }
 
 impl Operation {
     fn advance(&self) -> usize {
         match self {
-            Self::Addition(_, _) => 4,
-            Self::Multiplication(_, _) => 4,
-            Self::Input => 2,
+            Self::Addition(_, _, _) => 4,
+            Self::Multiplication(_, _, _) => 4,
+            Self::Input(_) => 2,
             Self::Output(_) => 2,
             Self::JumpTrue(_, _) => 3,
             Self::JumpFalse(_, _) => 3,
-            Self::Less(_, _) => 4,
-            Self::Equal(_, _) => 4,
+            Self::Less(_, _, _) => 4,
+            Self::Equal(_, _, _) => 4,
+            Self::ChangeRelativeBase(_) => 2,
             Self::Terminate => 0,
         }
     }
@@ -64,24 +70,26 @@ impl Intcode {
             let operation = Self::parse_operation(self.program[self.instruction_ptr]);
             let mut advance = operation.advance();
             match operation {
-                Operation::Addition(p1, p2) => {
+                Operation::Addition(p1, p2, p3) => {
                     self.write(
                         3,
                         self.value_from_parameter(1, p1) + self.value_from_parameter(2, p2),
+                        p3,
                     );
                 }
-                Operation::Multiplication(p1, p2) => {
+                Operation::Multiplication(p1, p2, p3) => {
                     self.write(
                         3,
                         self.value_from_parameter(1, p1) * self.value_from_parameter(2, p2),
+                        p3,
                     );
                 }
-                Operation::Input => {
+                Operation::Input(p1) => {
                     let mut op_input = String::new();
                     reader.read_line(&mut op_input).expect("Unable to read");
                     let op_input = op_input.trim().parse::<i64>();
                     match op_input {
-                        Ok(i) => self.write(1, i),
+                        Ok(i) => self.write(1, i, p1),
                         Err(_) => return ExitStatus::AwaitingInput,
                     }
                 }
@@ -101,23 +109,28 @@ impl Intcode {
                         self.instruction_ptr = self.value_from_parameter(2, p2) as usize;
                     }
                 }
-                Operation::Less(p1, p2) => {
+                Operation::Less(p1, p2, p3) => {
                     self.write(
                         3,
                         match self.value_from_parameter(1, p1) < self.value_from_parameter(2, p2) {
                             true => 1,
                             false => 0,
                         },
+                        p3,
                     );
                 }
-                Operation::Equal(p1, p2) => {
+                Operation::Equal(p1, p2, p3) => {
                     self.write(
                         3,
                         match self.value_from_parameter(1, p1) == self.value_from_parameter(2, p2) {
                             true => 1,
                             false => 0,
                         },
+                        p3,
                     );
+                }
+                Operation::ChangeRelativeBase(p1) => {
+                    self.relative_base += self.value_from_parameter(1, p1);
                 }
                 Operation::Terminate => return ExitStatus::Terminated,
             }
@@ -125,8 +138,14 @@ impl Intcode {
         }
     }
 
-    fn write(&mut self, offset: usize, value: i64) {
-        let address = self.program[self.instruction_ptr + offset] as usize;
+    fn write(&mut self, offset: usize, value: i64, mode: ParameterMode) {
+        let address = match mode {
+            ParameterMode::Position => self.program[self.instruction_ptr + offset] as usize,
+            ParameterMode::Relative => {
+                (self.program[self.instruction_ptr + offset] + self.relative_base) as usize
+            }
+            _ => unreachable!("Cannot write with immediate mode."),
+        };
         self.program[address] = value;
     }
 
@@ -136,12 +155,14 @@ impl Intcode {
             1 => Operation::Addition(
                 Self::parse_parameter_mode(instruction, 0),
                 Self::parse_parameter_mode(instruction, 1),
+                Self::parse_parameter_mode(instruction, 2),
             ),
             2 => Operation::Multiplication(
                 Self::parse_parameter_mode(instruction, 0),
                 Self::parse_parameter_mode(instruction, 1),
+                Self::parse_parameter_mode(instruction, 2),
             ),
-            3 => Operation::Input,
+            3 => Operation::Input(Self::parse_parameter_mode(instruction, 0)),
             4 => Operation::Output(Self::parse_parameter_mode(instruction, 0)),
             5 => Operation::JumpTrue(
                 Self::parse_parameter_mode(instruction, 0),
@@ -154,11 +175,14 @@ impl Intcode {
             7 => Operation::Less(
                 Self::parse_parameter_mode(instruction, 0),
                 Self::parse_parameter_mode(instruction, 1),
+                Self::parse_parameter_mode(instruction, 2),
             ),
             8 => Operation::Equal(
                 Self::parse_parameter_mode(instruction, 0),
                 Self::parse_parameter_mode(instruction, 1),
+                Self::parse_parameter_mode(instruction, 2),
             ),
+            9 => Operation::ChangeRelativeBase(Self::parse_parameter_mode(instruction, 0)),
             99 => Operation::Terminate,
             c => panic!("Unrecognized instruction: {}", c),
         }
@@ -168,6 +192,7 @@ impl Intcode {
         match instruction / (10i64.pow(position + 2)) % 10 {
             0 => ParameterMode::Position,
             1 => ParameterMode::Immediate,
+            2 => ParameterMode::Relative,
             p => panic!("Unrecognized parameter mode: {}", p),
         }
     }
@@ -178,6 +203,10 @@ impl Intcode {
                 self.program[self.program[self.instruction_ptr + offset] as usize]
             }
             ParameterMode::Immediate => self.program[self.instruction_ptr + offset],
+            ParameterMode::Relative => {
+                self.program
+                    [(self.program[self.instruction_ptr + offset] + self.relative_base) as usize]
+            }
         }
     }
 }
@@ -320,5 +349,41 @@ mod tests {
         let mut comp = computer.clone();
         comp.compute(&input[..], &mut output);
         assert_eq!(output, b"1001\n");
+    }
+
+    #[test]
+    fn test_relative_mode() {
+        let mut output = Vec::new();
+        let mut comp = Intcode::new(
+            [
+                109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99,
+            ]
+            .to_vec(),
+        );
+        comp.compute(empty(), &mut output);
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "109\n1\n204\n-1\n1001\n100\n1\n100\n1008\n100\n16\n101\n1006\n101\n0\n99\n"
+        );
+
+        let mut output = Vec::new();
+        let mut comp = Intcode::new([1102, 34915192, 34915192, 7, 4, 7, 99, 0].to_vec());
+        comp.compute(empty(), &mut output);
+        let result = String::from_utf8(output)
+            .unwrap()
+            .trim()
+            .parse::<u64>()
+            .unwrap();
+        assert!(result / 1_000_000_000_000_000 > 0);
+
+        let mut output = Vec::new();
+        let mut comp = Intcode::new([104, 1125899906842624, 99].to_vec());
+        comp.compute(empty(), &mut output);
+        let result = String::from_utf8(output)
+            .unwrap()
+            .trim()
+            .parse::<u64>()
+            .unwrap();
+        assert_eq!(result, 1125899906842624);
     }
 }
