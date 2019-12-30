@@ -2,7 +2,7 @@ use std::io::prelude::*;
 
 #[derive(Clone)]
 pub struct Intcode {
-    program: Vec<i64>,
+    pub program: Vec<i64>,
     instruction_ptr: usize,
 }
 
@@ -184,43 +184,40 @@ impl Intcode {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{empty, sink};
+
     use super::*;
 
     #[test]
     fn test_simple() {
-        let input = b"";
-        let mut output = Vec::new();
-
         let mut computer = Intcode::new([1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50].to_vec());
-        computer.compute(&input[..], &mut output);
+        computer.compute(empty(), sink());
         assert_eq!(
             computer.program,
             [3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50].to_vec()
         );
 
         let mut computer = Intcode::new([1, 0, 0, 0, 99].to_vec());
-        computer.compute(&input[..], &mut output);
+        computer.compute(empty(), sink());
         assert_eq!(computer.program, [2, 0, 0, 0, 99]);
 
         let mut computer = Intcode::new([2, 3, 0, 3, 99].to_vec());
-        computer.compute(&input[..], &mut output);
+        computer.compute(empty(), sink());
         assert_eq!(computer.program, [2, 3, 0, 6, 99]);
 
         let mut computer = Intcode::new([2, 4, 4, 5, 99, 0].to_vec());
-        computer.compute(&input[..], &mut output);
+        computer.compute(empty(), sink());
         assert_eq!(computer.program, [2, 4, 4, 5, 99, 9801]);
 
         let mut computer = Intcode::new([1, 1, 1, 4, 99, 5, 6, 0, 99].to_vec());
-        computer.compute(&input[..], &mut output);
+        computer.compute(empty(), sink());
         assert_eq!(computer.program, [30, 1, 1, 4, 2, 5, 6, 0, 99]);
     }
 
     #[test]
     fn test_operations() {
-        let input = b"";
-        let mut output = Vec::new();
         let mut computer = Intcode::new([1002, 4, 3, 4, 33].to_vec());
-        computer.compute(&input[..], &mut output);
+        computer.compute(empty(), sink());
         assert_eq!(computer.program, [1002, 4, 3, 4, 99]);
 
         let input = b"8";

@@ -4,8 +4,13 @@
 name = "day7"
 version = "0.1.0"
 dependencies = [
+ "intcode 0.1.0",
  "permute 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "intcode"
+version = "0.1.0"
 
 [[package]]
 name = "permute"
